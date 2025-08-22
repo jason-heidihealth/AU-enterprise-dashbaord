@@ -166,7 +166,7 @@ page = st.sidebar.selectbox(
 st.sidebar.header("Filters")
 
 if page == "Engagement Dashboard":
-    # --- existing Engagement Dashboard filters (States, price, Top/Bottom N)
+    # --- existing Engagement Dashboard filters (States, price, Top N)
     # Compute states from results_df only, normalized
     states_all = sorted([
         s for s in results_df['State'].dropna().astype(str).str.strip().unique()
@@ -193,7 +193,7 @@ if page == "Engagement Dashboard":
     else:
         unit_price = st.sidebar.number_input("Unit price per staff (AUD)", min_value=0.0, value=1299.0, step=1.0, key="unit_price")
 
-    n_topbottom = st.sidebar.number_input("Top/Bottom N by (Staff × Unit Price)", 3, 50, 10, 1, key="n_topbottom")
+    n_topbottom = st.sidebar.number_input("Top N by (Staff × Unit Price)", 3, 50, 10, 1, key="n_topbottom")
 
 elif page == "Master List":
     # --- New: Page 2 has State + LHN filters (cascading)
@@ -379,6 +379,68 @@ if page == "Engagement Dashboard":
         # Display in Streamlit
         st.plotly_chart(fig_grp, use_container_width=True)
 
+        # ----- NEW: Potential Total Contract Value (Top N)
+        st.subheader("Potential Total Contract Value — Top N LHNs")
+
+        # Build per-LHN view, guard against NaNs
+        ptcv_tbl = (
+            filtered[['LHN Name', 'State', 'Number of Staff', 'PTCV_custom']]
+            .copy()
+            .fillna({'Number of Staff': 0, 'PTCV_custom': 0})
+        )
+
+        # Sort & take Top N (uses the sidebar's n_topbottom)
+        ptcv_top = ptcv_tbl.sort_values('PTCV_custom', ascending=False).head(int(n_topbottom))
+
+        # If nothing to show, message out; else chart
+        if ptcv_top.empty:
+            st.info("No LHNs found with a calculable potential value in the current filters.")
+        else:
+            # Horizontal bar chart with labels formatted as currency
+            fig_ptcv = px.bar(
+                ptcv_top.sort_values('PTCV_custom'),  # sort so largest appears at top of horizontal bars
+                x='PTCV_custom',
+                y='LHN Name',
+                orientation='h',
+                text='PTCV_custom',
+                hover_data={
+                    'State': True,
+                    'Number of Staff': True,
+                    'PTCV_custom': ':.0f'
+                },
+                labels={'PTCV_custom': 'Potential Value (AUD)', 'LHN Name': 'LHN'}
+            )
+
+            # Pretty currency formatting and layout tweaks
+            fig_ptcv.update_traces(
+                texttemplate='A$%{x:,.0f}',
+                textposition='outside',
+                cliponaxis=False
+            )
+            fig_ptcv.update_xaxes(
+                title='Potential Total Contract Value (A$)',
+                tickprefix='A$',
+                separatethousands=True
+            )
+            fig_ptcv.update_yaxes(title='LHN', automargin=True)
+            fig_ptcv.update_layout(
+                title=f"Top {int(n_topbottom)} by (Staff × Unit Price @ A${unit_price:,.0f})",
+                margin=dict(l=80, r=20, t=60, b=40),
+                bargap=0.25
+            )
+
+            st.plotly_chart(fig_ptcv, use_container_width=True)
+
+            # Optional: show the underlying table for export/ sanity checks
+            with st.expander("Show Top N table"):
+                show_cols = ['LHN Name', 'State', 'Number of Staff', 'PTCV_custom']
+                tdisp = ptcv_top[show_cols].rename(columns={'PTCV_custom': 'Potential Value (AUD)'})
+                tdisp['Potential Value (AUD)'] = tdisp['Potential Value (AUD)'].map(lambda v: f"A${v:,.0f}")
+                st.dataframe(tdisp.reset_index(drop=True), use_container_width=True)
+
+
+
+
 
 
         # ----- Touched vs Untouched tables with selection (uses ONLY filtered)
@@ -481,3 +543,4 @@ if page == "Master List":
             hier_df = hier_df.replace("None", "").fillna("")
 
             # st.dataframe(hier_df, use_container_width=True)
+            
